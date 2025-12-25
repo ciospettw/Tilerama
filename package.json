@@ -33,7 +33,8 @@
   "author": "",
   "license": "MIT",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE.TXT"
   ],
   "dependencies": {
     "@turf/boolean-intersects": "^7.3.1",
