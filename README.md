@@ -4,20 +4,19 @@
 [![types](https://img.shields.io/npm/types/tilerama.svg)](https://www.npmjs.com/package/tilerama)
 [![license](https://img.shields.io/npm/l/tilerama.svg)](https://www.npmjs.com/package/tilerama)
 
-Tilerama is a Node.js/TypeScript library for acquiring, constructing, analyzing, and visualizing street networks from OpenStreetMap.
+> A TypeScript-first toolkit for downloading, cleaning, routing, and plotting OpenStreetMap street networks with **graphology**.
 
-It is inspired by OSMnx-style workflows, but designed for the JavaScript/TypeScript ecosystem.
+Inspired by OSMnx but built for the Node.js ecosystem.
 
-## What you get
+## Highlights
 
-- Build `graphology` `MultiDirectedGraph` street networks from:
-  - a lat/lon bbox
-  - a center point + distance
-  - an address/place name (via Nominatim)
-  - a GeoJSON polygon
-- Fetch OSM data via the Overpass API (with basic caching + optional rate limiting).
-- Simplify graphs topologically (`simplify_graph`) and truncate by bbox/polygon.
-- Helpers for conversion (`graph_to_geojson`), routing, stats, plotting, distance/bearing utilities.
+- Fetch networks from Overpass via bbox, center+distance, address/place name (Nominatim), GeoJSON polygon, or local OSM XML.
+- Returns a `graphology` `MultiDirectedGraph` with OSM tags, edge lengths, CRS metadata, and helpers to keep the largest component.
+- Built-in simplification and truncation to clip networks to bboxes or polygons.
+- Conversion + validation helpers: GeoJSON/GDF, GraphML-like, projections, and geometry utilities.
+- Routing and analysis: Dijkstra shortest paths, implicit speed handling, stats (lengths, intersections, circuity).
+- Visualization: quick Leaflet HTML plotter and color helpers for nodes/edges.
+- Sensible defaults for caching, rate limiting, headers, and user-agent etiquette.
 
 ## Install
 
@@ -27,9 +26,9 @@ npm install tilerama
 
 ## Quickstart
 
-### 1) Download a network by bbox
+### 1) Download a network (bbox)
 
-Tilerama bbox order is **`[north, south, east, west]`**.
+BBox order is **`[north, south, east, west]`**.
 
 ```ts
 import { graph_from_bbox } from "tilerama";
@@ -45,82 +44,66 @@ const G = await graph_from_bbox(bbox, "drive", true);
 console.log(G.order, G.size);
 ```
 
-### 2) Keep only the largest component
+### 2) From a place name + optional trimming
 
 ```ts
-import { largest_component } from "tilerama";
+import { graph_from_place, truncate_graph_bbox, largest_component } from "tilerama";
 
-const G2 = largest_component(G); // weakly connected by default
+const G2 = await graph_from_place("Lisbon, Portugal", 1, "drive"); // which_result=1 → first geocoder match
+const clipped = truncate_graph_bbox(G2, bbox, true);
+const giant = largest_component(clipped);
 ```
 
-### 3) Truncate by bbox (including edges that cross the boundary)
+### 3) Convert to GeoJSON and plot
 
 ```ts
-import { truncate_graph_bbox } from "tilerama";
+import { graph_to_geojson, plot_graph } from "tilerama";
 
-// truncate_by_edge=true retains outside nodes if an incident edge intersects the bbox
-const G3 = truncate_graph_bbox(G, bbox, true);
+const { nodes, edges } = graph_to_geojson(giant);
+const htmlPath = plot_graph(giant, { filepath: "network.html" });
+console.log(nodes.features.length, edges.features.length, htmlPath);
 ```
 
-## Core concepts
+### 4) Route between two nodes
 
-### Graph format
+```ts
+import { shortest_path } from "tilerama";
 
-Tilerama’s primary graph structure is a `graphology` `MultiDirectedGraph`.
+const [origin, destination] = giant.nodes().slice(0, 2);
+const path = shortest_path(giant, origin, destination, "length");
+```
 
-- Nodes typically have numeric `x` (lon) and `y` (lat)
-- Edges typically have `length` and may carry `geometry` as a GeoJSON `LineString`
+## API at a glance
 
-### Data sources and usage etiquette
+All functions are exported from `src/index.ts`.
 
-This library queries public services (Overpass + Nominatim by default). Please:
-
-- Set a reasonable `User-Agent` / `Referer` (defaults point at this repo)
-- Avoid hammering endpoints; keep `overpass_rate_limit` enabled for basic pacing
-- Respect OpenStreetMap and Overpass/Nominatim usage policies
-
-## API overview
-
-Tilerama exports functions from `src/index.ts`. A few high-level entry points:
-
-### Graph construction
-
-- `graph_from_bbox(bbox, network_type?, simplify?, retain_all?, truncate_by_edge?, custom_filter?)`
-- `graph_from_point(center_point, dist?, network_type?, simplify?, retain_all?, truncate_by_edge?, custom_filter?)`
-- `graph_from_address(address, dist?, dist_type?, network_type?, simplify?, retain_all?, truncate_by_edge?, custom_filter?)`
-- `graph_from_place(query, which_result?, network_type?, simplify?, retain_all?, truncate_by_edge?, custom_filter?)`
-- `graph_from_polygon(polygon, network_type?, simplify?, retain_all?, truncate_by_edge?, custom_filter?)`
-
-### Simplification and truncation
-
-- `simplify_graph(G, remove_rings?, track_merged?)`
-- `truncate_graph_bbox(G, bbox, truncate_by_edge?, retain_all?)`
-- `truncate_graph_polygon(G, polygon, retain_all?)`
-
-### Conversion
-
-- `graph_to_geojson(G)` → `{ nodes, edges }` FeatureCollections
+- **Graph construction**: `graph_from_bbox`, `graph_from_point`, `graph_from_address`, `graph_from_place`, `graph_from_polygon`, `graph_from_xml`, `_create_graph`.
+- **Cleanup & trimming**: `simplify_graph`, `truncate_graph_bbox`, `truncate_graph_polygon`, `largest_component`, `get_largest_component`.
+- **Conversion & validation**: `graph_to_geojson`, `graph_to_gdfs`, `graph_from_gdfs`, `validate_graph`, `validate_node_edge_gdfs`, `validate_features_gdf`, `to_digraph`, `to_undirected`.
+- **Routing & analysis**: `shortest_path`, `add_edge_speeds`, `add_edge_travel_times`, `basic_stats`, `count_streets_per_node`, `edge_length_total`, `intersection_count`, `circuity_avg`.
+- **Utilities**: distance/bearing (`great_circle`, `haversine`), projection helpers, Overpass/Nominatim helpers, geometry utils, color helpers (`get_colors`, `get_node_colors_by_attr`, `get_edge_colors_by_attr`), interactive plotting (`plot_graph`).
 
 ## Configuration
 
-Tilerama uses a single exported settings object that you can modify at runtime.
+Tilerama exposes a mutable `settings` object.
 
 ```ts
 import { settings } from "tilerama";
 
 settings.use_cache = true;
 settings.cache_folder = "./cache";
-settings.requests_timeout = 180;
-
-// If you run your own Overpass instance:
-// settings.overpass_url = "https://your.overpass.instance/api";
+settings.overpass_rate_limit = true;
+settings.overpass_url = "https://overpass.kumi.systems/api";
+settings.http_user_agent = "MyCoolApp (contact@example.com)";
 ```
 
-Common settings:
+Key toggles:
 
 - `use_cache`, `cache_folder`
-- `overpass_url`, `overpass_rate_limit`, `overpass_settings`, `overpass_memory`
+- `overpass_url`, `overpass_rate_limit`, `overpass_memory`
 - `http_user_agent`, `http_referer`, `http_accept_language`
+- `requests_timeout`
+- `bidirectional_network_types`, `all_oneway`
 
 ## Development
 
@@ -129,7 +112,15 @@ npm install
 npm run build
 ```
 
-The package builds to `dist/` and publishes only `dist/` + `README.md` + `package.json`.
+Outputs are written to `dist/`. Published files include `dist/`, `README.md`, and `package.json`.
+
+## Data sources & etiquette
+
+Tilerama talks to public Overpass and Nominatim endpoints by default. Please:
+
+- Keep `overpass_rate_limit` enabled and set a descriptive `User-Agent`/`Referer`.
+- Avoid abusive request patterns; cache when you can.
+- Respect OpenStreetMap, Overpass, and Nominatim usage policies.
 
 ## License
 
